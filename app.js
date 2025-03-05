@@ -18,21 +18,22 @@ app.use(cors());
 
 require('dotenv').config(); 
 // limit request per seconds 
-// const userLimiter = rateLimit({
-//   windowMs: 60 * 1000, 
-//   max: 100, 
-//   message: 'Too many vendor requests, please try again later.'
-// });
 
-// const ticketLimiter = rateLimit({
-//   windowMs: 60 * 1000, 
-//   max: 1000, 
-//   message: 'Too many ticket requests, please try again later.'
-// });
+const userLimiter = rateLimit({
+  windowMs: 60 * 1000, 
+  max: 100, 
+  message: 'Too many vendor requests, please try again later.'
+});
 
-app.use('/api/auth/user',userRoutes );
+const ticketLimiter = rateLimit({
+  windowMs: 60 * 1000, 
+  max: 1000, 
+  message: 'Too many ticket requests, please try again later.'
+});
+
+app.use('/api/auth/user',userRoutes ,userLimiter);
  
-app.use('/api/auth/tickets', ticketRoutes);
+app.use('/api/auth/tickets', ticketRoutes,tiketLimiter);
 
 
 // Start server
