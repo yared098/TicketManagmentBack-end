@@ -1,4 +1,5 @@
 const Ticket = require('../models/ticketModel');
+const { ObjectId } = require('mongodb'); // Ensure ObjectId is imported
 
 async function createTicket(req, res) {
     const db = req.app.locals.db;
@@ -73,15 +74,30 @@ async function getTickets(req, res) {
     }
 }
 
+
 async function updateTicket(req, res) {
     const db = req.app.locals.db;
     const dbType = req.app.locals.dbType;
-    const ticketId = req.params.id;
-    const updatedData = req.body;
+    const ticketId = req.params.id;  // This is the ticket ID passed in the URL
+    const updatedData = req.body;    // The updated data sent from the frontend
 
     try {
         if (dbType === 'mongodb') {
-            await db.collection('tickets').updateOne({ _id: new db.ObjectId(ticketId) }, { $set: updatedData });
+            // No need to convert ticketId to ObjectId since it's stored as a string
+            const result = await db.collection('tickets').updateOne(
+                { ticket_id: ticketId },  // Directly compare ticket_id as string
+                { $set: updatedData }
+            );
+
+            if (result.modifiedCount === 0) {
+                return res.status(404).json({ message: 'No ticket found to update' });
+            }
+
+            // Fetch the updated ticket to return it
+            const updatedTicket = await db.collection('tickets').findOne({ ticket_id: ticketId });
+
+            return res.status(200).json(updatedTicket);
+
         } else if (dbType === 'firebase') {
             await db.collection('tickets').doc(ticketId).update(updatedData);
         } else if (dbType === 'mysql') {
@@ -92,12 +108,17 @@ async function updateTicket(req, res) {
         } else {
             throw new Error('Unsupported database type');
         }
+
         res.status(200).json({ message: 'Ticket updated successfully' });
+
     } catch (error) {
         console.error('Error updating ticket:', error);
         res.status(500).json({ message: 'Error updating ticket', error: error.message });
     }
 }
+
+
+
 
 async function deleteTicket(req, res) {
     const db = req.app.locals.db;
@@ -105,36 +126,64 @@ async function deleteTicket(req, res) {
     const ticketId = req.params.id; // Assuming the ticket ID is sent as a URL parameter
 
     try {
-        if (dbType === 'firebase') {
-            // Firebase Firestore deletion
-            await db.collection('tickets').doc(ticketId).delete();
-            res.status(200).json({ message: 'Ticket deleted successfully' });
-        } else if (dbType === 'mongodb') {
-            // MongoDB deletion using Mongoose
-            const deletedTicket = await Ticket.findByIdAndDelete(ticketId);
-            if (!deletedTicket) return res.status(404).json({ message: 'Ticket not found' });
-            res.status(200).json({ message: 'Ticket deleted successfully' });
-        } else if (dbType === 'mysql') {
-            // MySQL deletion
-            const [result] = await db.promise().query('DELETE FROM tickets WHERE id = ?', [ticketId]);
-            if (result.affectedRows === 0) return res.status(404).json({ message: 'Ticket not found' });
-            res.status(200).json({ message: 'Ticket deleted successfully' });
-        } else if (dbType === 'supabase') {
-            // Supabase (PostgreSQL) deletion
-            const { data, error } = await db
-                .from('tickets')
-                .delete()
-                .eq('id', ticketId);
-            if (error) throw new Error(error.message);
-            res.status(200).json({ message: 'Ticket deleted successfully', data });
-        } else {
-            throw new Error('Unsupported database type');
+        if (!ticketId) {
+            return res.status(400).json({ message: 'Ticket ID is required' });
         }
+
+        let result;
+
+        switch (dbType) {
+            case 'firebase':
+                // Firebase Firestore deletion
+                await db.collection('tickets').doc(ticketId).delete();
+                result = { message: 'Ticket deleted successfully' };
+                break;
+
+            case 'mongodb':
+                // MongoDB deletion using Mongoose or native MongoDB driver
+
+                const objectId = ObjectId.isValid(ticketId) ? new ObjectId(ticketId) : ticketId; 
+                
+                const deletedTicket = await db.collection('tickets').deleteOne({ ticket_id: ticketId });
+                if (deletedTicket.deletedCount === 0) {
+                    return res.status(404).json({ message: 'Ticket not found' });
+                }
+                result = { message: 'Ticket deleted successfully' };
+                break;
+
+            case 'mysql':
+                // MySQL deletion
+                const [mysqlResult] = await db.promise().query('DELETE FROM tickets WHERE ticket_id = ?', [ticketId]);
+                if (mysqlResult.affectedRows === 0) {
+                    return res.status(404).json({ message: 'Ticket not found' });
+                }
+                result = { message: 'Ticket deleted successfully' };
+                break;
+
+            case 'supabase':
+                // Supabase (PostgreSQL) deletion
+                const { data, error } = await db
+                    .from('tickets')
+                    .delete()
+                    .eq('ticket_id', ticketId);
+                if (error) {
+                    throw new Error(error.message);
+                }
+                result = { message: 'Ticket deleted successfully', data };
+                break;
+
+            default:
+                return res.status(400).json({ message: 'Unsupported database type' });
+        }
+
+        res.status(200).json(result);
     } catch (error) {
         console.error('Error deleting ticket:', error);
         res.status(500).json({ message: 'Error deleting ticket', error: error.message });
     }
 }
+
+
 
 async function getTicketById(req, res) {
     const db = req.app.locals.db;
@@ -241,7 +290,8 @@ async function getTickets(req, res) {
 async function getMyTickets(req, res) {
     const db = req.app.locals.db;
     const dbType = req.app.locals.dbType;
-    const userId = req.user.id;
+    const userId = req.params.id;
+    console.log("USER ID", userId);
 
     try {
         let tickets;

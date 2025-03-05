@@ -75,6 +75,64 @@ async function getUsers(req, res) {
 }
 
 
+// const createUser = async (req, res) => {
+//     const db = req.app.locals.db; // Get database instance
+//     const dbType = req.app.locals.dbType; // Get database type (firebase, mongodb, etc.)
+//     console.log("DB TYPE", dbType);
+
+//     try {
+//         const { password, ...userData } = req.body; // Destructure password from other user data
+
+//         // Encrypt password
+//         const hashedPassword = await bcrypt.hash(password, 10); // Adjust the salt rounds if necessary
+
+//         // Prepare user data with hashed password
+//         const userWithHashedPassword = { ...userData, password: hashedPassword };
+
+//         let newUser;
+
+//         if (dbType === 'firebase') {
+//             // Firebase-specific logic (using Firestore)
+//             const customerRef = db.collection('users').doc(); // Firestore example
+//             await customerRef.set(userWithHashedPassword); // Set customer data with hashed password
+//             newUser = { id: customerRef.id, ...userWithHashedPassword }; // Assuming customerRef.id is the user ID
+//         } else if (dbType === 'mongodb') {
+//             // MongoDB logic
+//             const newCustomer = new Customer(userWithHashedPassword); // Use hashed password
+//             await newCustomer.save();
+//             newUser = newCustomer; // Assuming newCustomer has _id
+//         } else if (dbType === 'mysql') {
+//             // MySQL logic
+//             const [rows] = await db.promise().query('INSERT INTO users SET ?', userWithHashedPassword);
+//             newUser = { id: rows.insertId, ...userWithHashedPassword }; // Assuming insertId is the user ID
+//         } else if (dbType === 'supabase') {
+//             // Supabase logic (PostgreSQL)
+//             const { data, error } = await db
+//                 .from('users')
+//                 .insert([userWithHashedPassword]);
+
+//             if (error) throw new Error(error.message);
+//             newUser = data[0]; // Assuming the data array contains the newly created user
+//         } else {
+//             throw new Error('Unsupported database type');
+//         }
+
+//         // Generate JWT token
+//         const token = jwt.sign({ id: newUser.id }, secretKey, { expiresIn: '1h' }); // Token expires in 1 hour
+
+//         // Send response with the token
+//         res.status(200).json({
+//             message: 'User created successfully',
+//             token: token, // Send the generated JWT token
+//             user: newUser // Optionally send user data in the response
+//         });
+//     } catch (error) {
+//         console.error('Error creating user:', error);
+//         res.status(500).json({ message: 'Error creating user', error: error.message });
+//     }
+// };
+
+
 const createUser = async (req, res) => {
     const db = req.app.locals.db; // Get database instance
     const dbType = req.app.locals.dbType; // Get database type (firebase, mongodb, etc.)
@@ -82,9 +140,15 @@ const createUser = async (req, res) => {
 
     try {
         const { password, ...userData } = req.body; // Destructure password from other user data
+        console.log("Password:", password); // Check if password is received
+
+        if (!password) {
+            throw new Error("Password is required");
+        }
 
         // Encrypt password
         const hashedPassword = await bcrypt.hash(password, 10); // Adjust the salt rounds if necessary
+        console.log("Hashed Password:", hashedPassword); // Verify the hashed password
 
         // Prepare user data with hashed password
         const userWithHashedPassword = { ...userData, password: hashedPassword };
@@ -131,7 +195,6 @@ const createUser = async (req, res) => {
         res.status(500).json({ message: 'Error creating user', error: error.message });
     }
 };
-
 
 
 async function getUserById(req, res) {
@@ -200,53 +263,107 @@ async function updateUser(req, res) {
     }
 }
 
-
+const { ObjectId } = require('mongodb'); // Import ObjectId from the mongodb package
 
 async function deleteUser(req, res) {
+    const db = req.app.locals.db;
+    const dbType = req.app.locals.dbType; // Get database type (firebase, mongodb, etc.)
+    const customerId = req.params.id;
+
     try {
-        const db = req.app.locals.db;
-        const dbType = req.app.locals.dbType; // Get database type (firebase, mongodb, etc.)
-        const customerId = req.params.id;
+        let deleteResult;
 
         // MongoDB delete logic
         if (dbType === 'mongodb') {
-            await db.collection('users').deleteOne({ _id: new db.ObjectId(customerId) });
+            const result = await db.collection('users').deleteOne({ _id: new ObjectId(customerId) });
+            if (result.deletedCount === 0) return res.status(404).json({ message: 'User not found' });
+            deleteResult = { message: 'User deleted successfully' };
         }
-        // PostgreSQL (Supabase uses PostgreSQL) delete logic
+        // PostgreSQL (Supabase uses PostgreSQL) or MySQL delete logic
         else if (dbType === 'mysql' || dbType === 'supabase') {
-            await db.query('DELETE FROM users WHERE id = $1', [customerId]);
+            const result = await db.query('DELETE FROM users WHERE id = $1', [customerId]);
+            if (result.rowCount === 0) return res.status(404).json({ message: 'User not found' });
+            deleteResult = { message: 'User deleted successfully' };
         }
         // Firebase Firestore delete logic
         else if (dbType === 'firebase') {
-            await db.collection('users').doc(customerId).delete();
+            const userRef = db.collection('users').doc(customerId);
+            const user = await userRef.get();
+            if (!user.exists) return res.status(404).json({ message: 'User not found' });
+
+            await userRef.delete();
+            deleteResult = { message: 'User deleted successfully' };
         } else {
-            throw new Error('Unsupported database type');
+            return res.status(400).json({ message: 'Unsupported database type' });
         }
 
-        res.status(200).json({ message: 'users deleted successfully' });
+        res.status(200).json(deleteResult);
     } catch (error) {
-        console.error('Error deleting customer:', error);
-        res.status(500).json({ message: 'Error deleting users', error: error.message });
+        console.error('Error deleting user:', error);
+        res.status(500).json({ message: 'Error deleting user', error: error.message });
     }
 }
 
 
+
+// async function login(req, res) {
+//     console.log('login route');
+//     try {
+//         const db = req.app.locals.db;
+//         const dbType = req.app.locals.dbType;
+//         const { email, password } = req.body;
+//         let user;
+//         if (dbType === 'mongodb') {
+//             // If _id is needed as ObjectId, use ObjectId(email) or adjust accordingly
+//             user = await db.collection('users').findOne({ email });
+//             if (!user || !(await bcrypt.compare(password, user.password))) {
+//                 return res.status(401).json({ message: 'Invalid credentials' });
+//             }
+//         }
+        
+//         else if (dbType === 'mysql') {
+//             const [rows] = await db.promise().query('SELECT * FROM users WHERE email = ?', [email]);
+//             user = rows[0];
+//             if (!user || !(await bcrypt.compare(password, user.password))) {
+//                 return res.status(401).json({ message: 'Invalid credentials' });
+//             }
+//         } else if (dbType === 'supabase') {
+//             const { data, error } = await db.from('users').select('*').eq('email', email).single();
+//             if (error || !(await bcrypt.compare(password, data.password))) {
+//                 return res.status(401).json({ message: 'Invalid credentials' });
+//             }
+//             user = data;
+//         } else if (dbType === 'firebase') {
+//             const userRecord = await db.auth().getUserByEmail(email);
+//             if (!userRecord) {
+//                 return res.status(401).json({ message: 'Invalid credentials' });
+//             }
+//             user = { email: userRecord.email, uid: userRecord.uid };
+//         } else {
+//             return res.status(400).json({ message: 'Unsupported database type' });
+//         }
+
+//         const token = jwt.sign({ id: user.id, email: user.email }, 'your_secret_key', { expiresIn: '1h' });
+//         res.status(200).json({ message: 'Login successful', token });
+//     } catch (error) {
+//         console.error('Error logging in:', error);
+//         res.status(500).json({ message: 'Error logging in', error: error.message });
+//     }
+// }
 async function login(req, res) {
-    console.log('login route');
+    console.log('Login route hit');
     try {
         const db = req.app.locals.db;
         const dbType = req.app.locals.dbType;
         const { email, password } = req.body;
         let user;
+
         if (dbType === 'mongodb') {
-            // If _id is needed as ObjectId, use ObjectId(email) or adjust accordingly
             user = await db.collection('users').findOne({ email });
             if (!user || !(await bcrypt.compare(password, user.password))) {
                 return res.status(401).json({ message: 'Invalid credentials' });
             }
-        }
-        
-        else if (dbType === 'mysql') {
+        } else if (dbType === 'mysql') {
             const [rows] = await db.promise().query('SELECT * FROM users WHERE email = ?', [email]);
             user = rows[0];
             if (!user || !(await bcrypt.compare(password, user.password))) {
@@ -268,13 +385,27 @@ async function login(req, res) {
             return res.status(400).json({ message: 'Unsupported database type' });
         }
 
-        const token = jwt.sign({ id: user.id, email: user.email }, 'your_secret_key', { expiresIn: '1h' });
-        res.status(200).json({ message: 'Login successful', token });
+        // Generate token
+        const token = jwt.sign(
+            { id: user.id || user._id || user.uid, email: user.email }, 
+            'your_secret_key', 
+            { expiresIn: '1h' }
+        );
+
+        // Remove sensitive data (e.g., password) before sending user info
+        const { password: _, ...userInfo } = user;
+
+        res.status(200).json({
+            message: 'Login successful',
+            token,
+            user: userInfo, // Return user details
+        });
     } catch (error) {
         console.error('Error logging in:', error);
         res.status(500).json({ message: 'Error logging in', error: error.message });
     }
 }
+
 
 module.exports = {
     getUsers,

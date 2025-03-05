@@ -13,7 +13,7 @@ const checkAuth = require('../middlewares/authMiddleware');
 const router = express.Router();
 
 // Get my tickets (user-specific)
-router.get('/my', checkAuth, async (req, res) => {
+router.get('/my/:id', async (req, res) => {
     await getMyTickets(req, res);
 });
 
@@ -41,6 +41,7 @@ router.get('/:id', async (req, res) => {
 
 // Route to update a ticket
 router.put('/:id', async (req, res) => {
+    console.log("Ticket ID:", req.params.id); // Log ticket ID to verify it is correc
     await updateTicket(req, res);
 });
 
