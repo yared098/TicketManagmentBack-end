@@ -33,7 +33,7 @@ const ticketLimiter = rateLimit({
 
 app.use('/api/auth/user',userRoutes ,userLimiter);
  
-app.use('/api/auth/tickets', ticketRoutes,tiketLimiter);
+app.use('/api/auth/tickets', ticketRoutes,ticketLimiter);
 
 
 // Start server
